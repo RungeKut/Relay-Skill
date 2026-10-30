@@ -3,7 +3,9 @@
 
     python relay.py init                       go.md в корне проекта, .relay/ скрыт от git
     python relay.py send --to <агент> --id <id> --file бриф.md [--shared]
-    python relay.py claim --agent <агент>      взять задание (создаёт ветку и worktree)
+    python relay.py listen --agent <агент>     ждун: блокируется, пока не появится задание, и берёт его
+    python relay.py claim --agent <агент>      взять задание сразу, без ожидания (создаёт ветку и worktree)
+    python relay.py stop --agent <агент>       остановить ждуна
     python relay.py finish --id <id>           закрыть задание после отчёта
     python relay.py wait --id <id>             ждать отчёт (запускать в фоне)
     python relay.py status
@@ -153,11 +155,43 @@ def claim_cmd(args):
     if task is None:
         print(f"заданий для {args.agent} нет")
         return 3
-    cwd = task_cwd(args.agent, task)
+    print_claimed(args.agent, task)
+    return 0
+
+
+def print_claimed(agent, task):
+    cwd = task_cwd(agent, task)
     print(f"id: {task.stem}")
     print(f"задание: {task}")
     print(f"рабочий каталог: {cwd}")
     print(f"отчёт: {RELAY / 'result' / (task.stem + '.md')}")
+
+
+def listen_cmd(args):
+    ensure_dirs()
+    beat = RELAY / "heartbeat" / f"{args.agent}.txt"
+    stop = RELAY / "heartbeat" / f"{args.agent}.stop"
+    stop.unlink(missing_ok=True)
+    deadline = time.time() + args.max
+    while time.time() < deadline:
+        beat.write_text(str(int(time.time())), encoding="utf-8")
+        if stop.exists():
+            stop.unlink(missing_ok=True)
+            print("остановлен командой stop")
+            return 5
+        task = claim(args.agent)
+        if task is not None:
+            print_claimed(args.agent, task)
+            return 0
+        time.sleep(args.poll)
+    print(f"заданий нет за {int(args.max)} с: запусти listen снова")
+    return 4
+
+
+def stop_cmd(args):
+    ensure_dirs()
+    (RELAY / "heartbeat" / f"{args.agent}.stop").write_text("1", encoding="utf-8")
+    print(f"ждуну {args.agent} отправлена остановка")
     return 0
 
 
@@ -266,6 +300,14 @@ def main():
     p = sub.add_parser("claim")
     p.add_argument("--agent", required=True)
     p.set_defaults(fn=claim_cmd)
+    p = sub.add_parser("listen")
+    p.add_argument("--agent", required=True)
+    p.add_argument("--max", type=float, default=540)
+    p.add_argument("--poll", type=float, default=2.0)
+    p.set_defaults(fn=listen_cmd)
+    p = sub.add_parser("stop")
+    p.add_argument("--agent", required=True)
+    p.set_defaults(fn=stop_cmd)
     p = sub.add_parser("finish")
     p.add_argument("--id", required=True)
     p.set_defaults(fn=finish_cmd)
