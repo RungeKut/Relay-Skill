@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+tools/stoplist.txt
+local/
+*.log
+*.bak
+Thumbs.db
