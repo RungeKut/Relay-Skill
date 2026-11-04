@@ -9,7 +9,7 @@
     python relay.py finish --id <id>           закрыть задание после отчёта
     python relay.py wait --id <id>             ждать отчёт (запускать в фоне)
     python relay.py status
-    python relay.py serve --agent <агент>      автозапуск CLI агента (нужен .relay/agents.json)
+    python relay.py serve --agent <агент>      автозапуск CLI агента (нужен .relay/agents.json; "console": true — отдельное окно консоли на задание, Windows)
 
 Корень проекта — git-репозиторий текущего каталога (из worktree агента тоже
 находится основной репозиторий). Очередь живёт в <корень>/.relay/ и не
@@ -239,15 +239,23 @@ def run_task(agent, cfg, task):
         prompt = PROMPT.format(task=task, cwd=cwd, result=result)
         cmd = [part.format(prompt=prompt, cwd=cwd) for part in cfg["cmd"]]
         env = {**os.environ, **cfg.get("env", {})}
-        with log.open("wb") as out:
-            proc = subprocess.Popen(
-                cmd, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT
-            )
+        if cfg.get("console") and os.name == "nt":
+            proc = subprocess.Popen(cmd, cwd=cwd, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
             try:
                 code = proc.wait(timeout=cfg.get("timeout", 1800))
             except subprocess.TimeoutExpired:
                 proc.kill()
                 code = "timeout"
+        else:
+            with log.open("wb") as out:
+                proc = subprocess.Popen(
+                    cmd, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT
+                )
+                try:
+                    code = proc.wait(timeout=cfg.get("timeout", 1800))
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    code = "timeout"
         reason = f"процесс завершился, код {code}"
     except Exception as exc:
         reason = f"сбой запуска: {exc}"
